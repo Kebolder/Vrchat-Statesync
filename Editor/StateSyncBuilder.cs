@@ -7,6 +7,8 @@ namespace JaxTools.StateSync
 {
     public static class StateSyncBuilder
     {
+        private const string LogPrefix = "[StateSync] ";
+
         public static void BuildRemoteSync(
             AnimatorController controller,
             int layerIndex,
@@ -21,90 +23,116 @@ namespace JaxTools.StateSync
             bool matchTransitionTimes
         )
         {
-            if (controller == null) return;
-            if (layerIndex < 0 || layerIndex >= controller.layers.Length) return;
-
-            var root = controller.layers[layerIndex].stateMachine;
-            if (root == null) return;
-
-            int localId = FindStateIdByName(root, localTreeName);
-            int remoteId = FindStateIdByName(root, remoteTreeName);
-            int defaultId = root.defaultState != null ? root.defaultState.GetInstanceID() : 0;
-
-            float minLocalX = float.PositiveInfinity;
-            Traverse(root, (parent, child) =>
+            if (controller == null)
             {
-                minLocalX = Mathf.Min(minLocalX, child.position.x);
-            });
-
-            var clonedByNumber = new Dictionary<int, AnimatorState>();
-            var cloneParents = new Dictionary<int, AnimatorStateMachine>();
-            var originalsByNumber = new Dictionary<int, AnimatorState>();
-            float maxCloneX = float.NegativeInfinity;
-            Traverse(root, (parent, child) =>
+                Debug.LogError(LogPrefix + "BuildRemoteSync aborted: controller is null.");
+                return;
+            }
+            if (layerIndex < 0 || layerIndex >= controller.layers.Length)
             {
-                var state = child.state;
-                if (state == null) return;
-
-                int stateId = state.GetInstanceID();
-                if (!assignedNumbers.TryGetValue(stateId, out int number) || number < 0) return;
-                if (stateId == defaultId || stateId == localId || stateId == remoteId) return;
-
-                string baseName = string.IsNullOrEmpty(remotePrefix)
-                    ? state.name
-                    : $"{remotePrefix}{state.name}";
-                string newName = MakeUniqueStateName(parent, baseName);
-
-                var clone = JaxTools.StateSync.Utility.AnimatorTools.CloneState(
-                    state,
-                    parent,
-                    newName,
-                    removeDriversFromRemote
-                );
-                if (clone == null) return;
-
-                Vector3 pos = child.position;
-                pos.x = -pos.x;
-                UpdateChildPosition(parent, clone, pos);
-                maxCloneX = Mathf.Max(maxCloneX, pos.x);
-
-                // Ensure cloned states start disconnected.
-                clone.transitions = System.Array.Empty<AnimatorStateTransition>();
-
-                clonedByNumber[number] = clone;
-                originalsByNumber[number] = state;
-                cloneParents[clone.GetInstanceID()] = parent;
-            });
-
-            const float MinCloneGap = 50f;
-            if (clonedByNumber.Count > 0 && minLocalX < float.PositiveInfinity && maxCloneX > minLocalX - MinCloneGap)
-            {
-                float shift = maxCloneX - (minLocalX - MinCloneGap);
-                foreach (var clonePair in clonedByNumber)
-                {
-                    var clone = clonePair.Value;
-                    if (clone == null) continue;
-                    var parent = cloneParents.TryGetValue(clone.GetInstanceID(), out var p) ? p : root;
-                    if (!TryGetStatePosition(parent, clone.GetInstanceID(), out var pos))
-                        continue;
-                    pos.x -= shift;
-                    UpdateChildPosition(parent, clone, pos);
-                }
+                Debug.LogError(LogPrefix + "BuildRemoteSync aborted: layer index is out of range.");
+                return;
             }
 
-            EnsureIntParameter(controller, remoteParameterName);
-            var targetMachine = root;
-            if (packIntoStateMachine)
-                targetMachine = PackRemoteStates(root, remoteId, clonedByNumber, cloneParents, "Remote Sync");
+            var root = controller.layers[layerIndex].stateMachine;
+            if (root == null)
+            {
+                Debug.LogError(LogPrefix + "BuildRemoteSync aborted: selected layer has no state machine.");
+                return;
+            }
 
-            ConnectClonedStates(clonedByNumber, originalsByNumber, remoteParameterName, matchTransitionTimes);
-            ConnectRemoteTree(targetMachine, remoteId, clonedByNumber, remoteParameterName);
+            try
+            {
+                int localId = FindStateIdByName(root, localTreeName);
+                int remoteId = FindStateIdByName(root, remoteTreeName);
+                int defaultId = root.defaultState != null ? root.defaultState.GetInstanceID() : 0;
 
-            if (addDriverForLocalSyncState)
-                AddDriversToOriginalStates(controller, layerIndex, root, assignedNumbers, remoteParameterName);
+                float minLocalX = float.PositiveInfinity;
+                Traverse(root, (parent, child) =>
+                {
+                    minLocalX = Mathf.Min(minLocalX, child.position.x);
+                });
 
-            EditorUtility.SetDirty(controller);
-            AssetDatabase.SaveAssets();
+                var clonedByNumber = new Dictionary<int, AnimatorState>();
+                var cloneParents = new Dictionary<int, AnimatorStateMachine>();
+                var originalsByNumber = new Dictionary<int, AnimatorState>();
+                float maxCloneX = float.NegativeInfinity;
+                Traverse(root, (parent, child) =>
+                {
+                    var state = child.state;
+                    if (state == null) return;
+
+                    int stateId = state.GetInstanceID();
+                    if (!assignedNumbers.TryGetValue(stateId, out int number) || number < 0) return;
+                    if (stateId == defaultId || stateId == localId || stateId == remoteId) return;
+
+                    string baseName = string.IsNullOrEmpty(remotePrefix)
+                        ? state.name
+                        : $"{remotePrefix}{state.name}";
+                    string newName = MakeUniqueStateName(parent, baseName);
+
+                    var clone = JaxTools.StateSync.Utility.AnimatorTools.CloneState(
+                        state,
+                        parent,
+                        newName,
+                        removeDriversFromRemote
+                    );
+                    if (clone == null) return;
+
+                    Vector3 pos = child.position;
+                    pos.x = -pos.x;
+                    UpdateChildPosition(parent, clone, pos);
+                    maxCloneX = Mathf.Max(maxCloneX, pos.x);
+
+                    // Ensure cloned states start disconnected.
+                    clone.transitions = System.Array.Empty<AnimatorStateTransition>();
+
+                    clonedByNumber[number] = clone;
+                    originalsByNumber[number] = state;
+                    cloneParents[clone.GetInstanceID()] = parent;
+                });
+
+                if (assignedNumbers == null || assignedNumbers.Count == 0)
+                    Debug.LogWarning(LogPrefix + "No assigned numbers found; no states will be cloned.");
+                if (clonedByNumber.Count == 0)
+                    Debug.LogWarning(LogPrefix + "No clone states created. Check assigned numbers and exclusions.");
+
+                const float MinCloneGap = 50f;
+                if (clonedByNumber.Count > 0 && minLocalX < float.PositiveInfinity && maxCloneX > minLocalX - MinCloneGap)
+                {
+                    float shift = maxCloneX - (minLocalX - MinCloneGap);
+                    foreach (var clonePair in clonedByNumber)
+                    {
+                        var clone = clonePair.Value;
+                        if (clone == null) continue;
+                        var parent = cloneParents.TryGetValue(clone.GetInstanceID(), out var p) ? p : root;
+                        if (!TryGetStatePosition(parent, clone.GetInstanceID(), out var pos))
+                            continue;
+                        pos.x -= shift;
+                        UpdateChildPosition(parent, clone, pos);
+                    }
+                }
+
+                EnsureIntParameter(controller, remoteParameterName);
+                var targetMachine = root;
+                if (packIntoStateMachine)
+                    targetMachine = PackRemoteStates(root, remoteId, clonedByNumber, cloneParents, "Remote Sync");
+
+                ConnectClonedStates(clonedByNumber, originalsByNumber, remoteParameterName, matchTransitionTimes);
+                ConnectRemoteTree(targetMachine, remoteId, clonedByNumber, remoteParameterName);
+
+                if (addDriverForLocalSyncState)
+                    AddDriversToOriginalStates(controller, layerIndex, root, assignedNumbers, remoteParameterName);
+
+                EditorUtility.SetDirty(controller);
+                AssetDatabase.SaveAssets();
+                Debug.Log(LogPrefix + "BuildRemoteSync completed.");
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogException(ex);
+                Debug.LogError(LogPrefix + "BuildRemoteSync failed with an exception.");
+            }
         }
 
         private static void Traverse(AnimatorStateMachine sm, System.Action<AnimatorStateMachine, ChildAnimatorState> onState)

@@ -257,6 +257,10 @@ namespace JaxTools.StateSync
             EditorGUILayout.Space(8);
             if (GUILayout.Button("Create Remote sync", GUILayout.Height(28)))
             {
+                Dictionary<string, int> assignedByPath = null;
+                if (cloneAnimatorBeforeSync)
+                    assignedByPath = BuildAssignedNumberMapByPath();
+
                 if (cloneAnimatorBeforeSync)
                 {
                     var cloned = JaxTools.StateSync.Utility.AnimatorTools.CloneAnimator(controller, cloneAnimatorPrefix);
@@ -280,7 +284,11 @@ namespace JaxTools.StateSync
                 var targetRoot = controller.layers[selectedLayerIndex].stateMachine;
                 RebuildStates(targetRoot);
 
-                if (TryGetConflictSummary(targetRoot, cachedStates, out string conflictSummary))
+                var assignedNumbers = assignedByPath != null
+                    ? BuildAssignedNumberMapFromPaths(targetRoot, assignedByPath)
+                    : BuildAssignedNumberMap();
+
+                if (TryGetConflictSummary(targetRoot, cachedStates, assignedNumbers, out string conflictSummary))
                 {
                     EditorUtility.DisplayDialog(
                         "Conflicting State Numbers",
@@ -294,7 +302,7 @@ namespace JaxTools.StateSync
                     controller,
                     selectedLayerIndex,
                     parameterPrefix,
-                    BuildAssignedNumberMap(),
+                    assignedNumbers,
                     localTreeName,
                     remoteTreeName,
                     remoteParameterName,
@@ -817,6 +825,53 @@ namespace JaxTools.StateSync
             return map;
         }
 
+        private Dictionary<string, int> BuildAssignedNumberMapByPath()
+        {
+            var map = new Dictionary<string, int>();
+            int defaultId = 0;
+            if (controller != null && selectedLayerIndex >= 0 && selectedLayerIndex < controller.layers.Length)
+            {
+                var root = controller.layers[selectedLayerIndex].stateMachine;
+                if (root != null && root.defaultState != null)
+                    defaultId = root.defaultState.GetInstanceID();
+            }
+
+            foreach (var entry in cachedStates)
+            {
+                if (entry.State == null) continue;
+                int stateId = entry.State.GetInstanceID();
+                if (stateId == defaultId || stateId == localStartStateId || stateId == remoteStartStateId)
+                    continue;
+
+                int autoNumber = ParseTrailingNumber(entry.State.name);
+                int assignedNumber = GetAssignedNumber(stateId, autoNumber);
+                if (assignedNumber >= 0 && !string.IsNullOrEmpty(entry.Path))
+                    map[entry.Path] = assignedNumber;
+            }
+
+            return map;
+        }
+
+        private static Dictionary<int, int> BuildAssignedNumberMapFromPaths(
+            AnimatorStateMachine root,
+            Dictionary<string, int> assignedByPath
+        )
+        {
+            var map = new Dictionary<int, int>();
+            if (root == null || assignedByPath == null || assignedByPath.Count == 0) return map;
+
+            var states = JaxTools.StateSync.Utility.AnimatorTools.GetStates(root);
+            foreach (var entry in states)
+            {
+                if (entry.State == null) continue;
+                if (string.IsNullOrEmpty(entry.Path)) continue;
+                if (!assignedByPath.TryGetValue(entry.Path, out int number)) continue;
+                map[entry.State.GetInstanceID()] = number;
+            }
+
+            return map;
+        }
+
         private static void DrawCentered(System.Action draw, float height)
         {
             GUILayout.BeginVertical(GUILayout.Height(height));
@@ -968,6 +1023,7 @@ namespace JaxTools.StateSync
         private bool TryGetConflictSummary(
             AnimatorStateMachine rootSM,
             List<StateEntry> states,
+            Dictionary<int, int> assignedNumbers,
             out string summary
         )
         {
@@ -986,8 +1042,14 @@ namespace JaxTools.StateSync
                 bool isDefault = defaultState != null && entry.State == defaultState;
                 if (IsNonNumberedState(isDefault, stateId)) continue;
 
-                int autoNumber = ParseTrailingNumber(entry.State.name);
-                int assignedNumber = GetAssignedNumber(stateId, autoNumber);
+                int assignedNumber;
+                if (assignedNumbers != null && assignedNumbers.TryGetValue(stateId, out int mapped))
+                    assignedNumber = mapped;
+                else
+                {
+                    int autoNumber = ParseTrailingNumber(entry.State.name);
+                    assignedNumber = GetAssignedNumber(stateId, autoNumber);
+                }
                 if (assignedNumber < 0) continue;
 
                 if (!conflicts.TryGetValue(assignedNumber, out var list))

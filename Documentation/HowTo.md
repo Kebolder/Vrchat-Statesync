@@ -19,7 +19,7 @@
 
 ### 3. Assigning states to numbers
 
-- By default, if your state name ends with a number (for example, `State name 1`), the plugin will automatically assign that number to the state. You can change it by editing the number.
+- By default, if your state name ends with a number (for example, `State name 1`. Note: It does require the spaced number not `State name1`), the plugin will automatically assign that number to the state. You can change it by editing the number.
 - If your state does not have a number, you can assign any number to it (as long as it doesn’t conflict with another state).
 - Be careful: assigning the same number to multiple states will cause a conflict.
 
@@ -32,7 +32,7 @@
 
 - `Clone Animator before sync` will clone your Animator using a prefix `StateSync_` before doing it's logic so you always have a clean version.
 - `Remote Parameter` is the parameter you want to use for syncing. **Currently locked to Int only.**
-- `Remote state prefix` adds a prefix to the front of newly cloned states (for example, `Remote_Statenamehere`).
+- `Remote state prefix` adds a prefix to the front of newly cloned states (for example, `Remote_State 1`).
 - `Remove Drivers from remote` removes parameter drivers that are cloned from the original states.
 - `Add drivers to local states` adds a driver to all assigned states based on their number if you don’t already have parameter drivers set up. **This also scans your drivers to make sure it doesn’t already exist.**
 - `Pack into StateMachine` packs your `Remote tree` and `Cloned States` into a sub-state machine.

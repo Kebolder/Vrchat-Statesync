@@ -35,34 +35,57 @@ namespace JaxTools.StateSync.Utility
             string prefix = "StateSynced_"
         )
         {
-            if (source == null) return null;
+            if (source == null)
+            {
+                Debug.LogError("[StateSync] CloneAnimator failed: source controller is null.");
+                return null;
+            }
             if (string.IsNullOrEmpty(prefix)) prefix = "StateSynced_";
 
             string sourcePath = AssetDatabase.GetAssetPath(source);
             if (string.IsNullOrEmpty(sourcePath))
+            {
+                Debug.LogWarning("[StateSync] CloneAnimator: source has no asset path, cloning in-memory only.");
                 return UnityEngine.Object.Instantiate(source);
+            }
 
             string directory = Path.GetDirectoryName(sourcePath);
             if (string.IsNullOrEmpty(directory))
+            {
+                Debug.LogWarning("[StateSync] CloneAnimator: source path has no directory, cloning in-memory only.");
                 return UnityEngine.Object.Instantiate(source);
+            }
 
             string newName = $"{prefix}{source.name}";
             string newPath = Path.Combine(directory, $"{newName}.controller");
             newPath = AssetDatabase.GenerateUniqueAssetPath(newPath);
 
-            if (!AssetDatabase.CopyAsset(sourcePath, newPath))
-                return UnityEngine.Object.Instantiate(source);
-
-            AssetDatabase.ImportAsset(newPath);
-            var clone = AssetDatabase.LoadAssetAtPath<AnimatorController>(newPath);
-            if (clone != null && clone.name != newName)
+            try
             {
-                clone.name = newName;
-                EditorUtility.SetDirty(clone);
-                AssetDatabase.SaveAssets();
-            }
+                if (!AssetDatabase.CopyAsset(sourcePath, newPath))
+                {
+                    Debug.LogError($"[StateSync] CloneAnimator failed to copy asset: {sourcePath} -> {newPath}");
+                    return UnityEngine.Object.Instantiate(source);
+                }
 
-            return clone;
+                AssetDatabase.ImportAsset(newPath);
+                var clone = AssetDatabase.LoadAssetAtPath<AnimatorController>(newPath);
+                if (clone != null && clone.name != newName)
+                {
+                    clone.name = newName;
+                    EditorUtility.SetDirty(clone);
+                    AssetDatabase.SaveAssets();
+                }
+
+                Debug.Log($"[StateSync] CloneAnimator created: {newPath}");
+                return clone;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                Debug.LogError("[StateSync] CloneAnimator encountered an exception; using in-memory clone.");
+                return UnityEngine.Object.Instantiate(source);
+            }
         }
 
         public static void CleanState(AnimatorState state)

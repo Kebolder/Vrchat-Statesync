@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Font colors in the state info box being black.
 ---
-## [1.1.3] - 12-9-2025
+## [1.1.3] - 12-19-2025
 ### Added
 - Error pop up when conflicitng states exist.
 - Clone aniamtor setting
@@ -37,3 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Conflict showing on wrong state
+---
+## [1.1.4] - 12-19-2015
+### Fixed
+- When cloning a layer with a bunch of states will lose its dictionary thus causing the states to be dropped.
