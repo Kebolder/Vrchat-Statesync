@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
@@ -26,8 +28,14 @@ namespace JaxTools.StateSync
         private const float StateNameMinWidth = 280f;
         private const float AssignInputWidth = 44f;
         private const float StateTagBoxWidth = 90f;
+        private const float HeaderIconSize = 28f;
         private const string StateButtonFrameHex = "dadada";
         private const string StateLeftEmptyHex = "B8B8B8";
+        private const string IconFolderName = "Icons";
+        private const string Icon1FileName = "discord.png";
+        private const string Icon2FileName = "github.png";
+        private const string Icon1Url = "https://discord.gg/htg3PWaWkU";
+        private const string Icon2Url = "https://github.com/Kebolder/Vrchat-Statesync";
 
         // UI colors
         private static readonly Color Orange = ColorFromHex("ff6e00");
@@ -45,7 +53,13 @@ namespace JaxTools.StateSync
         private GUIStyle stateLeftBoxStyle;
         private GUIStyle stateButtonFrameStyle;
         private GUIStyle assignLabelStyle;
+        private GUIStyle headerIconButtonStyle;
+        private GUIStyle settingsToggleStyle;
         private int cachedStatesHash;
+
+        private Texture2D headerIcon1;
+        private Texture2D headerIcon2;
+        private string cachedPackageVersion;
 
         private string parameterPrefix = "Remote_";
         private string stateFilterPrefix = "";
@@ -56,6 +70,8 @@ namespace JaxTools.StateSync
         private bool packIntoStateMachine;
         private bool matchTransitionTimes;
         private string clearStatePrefix = "Remote_";
+        private bool cloneAnimatorBeforeSync = true;
+        private string cloneAnimatorPrefix = "StateSynced_";
 
         private readonly Dictionary<int, int> manualStateAssignments = new();
         private readonly Dictionary<int, string> manualStateAssignmentText = new();
@@ -65,6 +81,7 @@ namespace JaxTools.StateSync
         private string localTreeName = "Local Tree";
         private string remoteTreeName = "Remote Tree";
         private string pendingFocusControl;
+        private int lastEditedStateId;
 
         private static Color ColorFromHex(string hex)
         {
@@ -102,7 +119,7 @@ namespace JaxTools.StateSync
         private void OnGUI()
         {
             windowScroll = EditorGUILayout.BeginScrollView(windowScroll);
-            EditorGUILayout.LabelField("Animator Controller", EditorStyles.boldLabel);
+            DrawHeaderBar();
 
             var newController = (AnimatorController)EditorGUILayout.ObjectField(
                 "Controller",
@@ -117,6 +134,7 @@ namespace JaxTools.StateSync
                 selectedLayerIndex = -1;
                 cachedStates.Clear();
                 needsRebuildStates = true;
+                lastEditedStateId = 0;
             }
 
             EditorGUILayout.Space(8);
@@ -220,6 +238,13 @@ namespace JaxTools.StateSync
             GUI.backgroundColor = prevSectionBg;
 
             EditorGUILayout.LabelField("Settings", EditorStyles.boldLabel);
+            EnsureSettingsToggleStyle();
+            string toggleLabel = cloneAnimatorBeforeSync
+                ? "Clone Animator before sync"
+                : "Clone Animator before sync <color=#D94A4A>(Are you sure you want to run without a backup?)</color>";
+            cloneAnimatorBeforeSync = EditorGUILayout.ToggleLeft(toggleLabel, cloneAnimatorBeforeSync, settingsToggleStyle);
+            if (cloneAnimatorBeforeSync)
+                cloneAnimatorPrefix = EditorGUILayout.TextField("Clone prefix", cloneAnimatorPrefix);
             DrawRemoteParameterDropdown();
             parameterPrefix = EditorGUILayout.TextField("Remote state prefix", parameterPrefix);
 
@@ -232,6 +257,39 @@ namespace JaxTools.StateSync
             EditorGUILayout.Space(8);
             if (GUILayout.Button("Create Remote sync", GUILayout.Height(28)))
             {
+                if (cloneAnimatorBeforeSync)
+                {
+                    var cloned = JaxTools.StateSync.Utility.AnimatorTools.CloneAnimator(controller, cloneAnimatorPrefix);
+                    if (cloned != null)
+                    {
+                        controller = cloned;
+                        if (selectedLayerIndex < 0 || selectedLayerIndex >= controller.layers.Length)
+                            selectedLayerIndex = 0;
+                    }
+                    else
+                    {
+                        EditorUtility.DisplayDialog(
+                            "Clone Failed",
+                            "Unable to clone the AnimatorController. Sync was not started.",
+                            "OK"
+                        );
+                        return;
+                    }
+                }
+
+                var targetRoot = controller.layers[selectedLayerIndex].stateMachine;
+                RebuildStates(targetRoot);
+
+                if (TryGetConflictSummary(targetRoot, cachedStates, out string conflictSummary))
+                {
+                    EditorUtility.DisplayDialog(
+                        "Conflicting State Numbers",
+                        $"You have conflicting state numbers:\n{conflictSummary}",
+                        "OK"
+                    );
+                    return;
+                }
+
                 StateSyncBuilder.BuildRemoteSync(
                     controller,
                     selectedLayerIndex,
@@ -273,6 +331,91 @@ namespace JaxTools.StateSync
             EditorGUILayout.EndScrollView();
         }
 
+        private void DrawHeaderBar()
+        {
+            EnsureHeaderIcons();
+            EnsurePackageVersion();
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Animator Controller", EditorStyles.boldLabel);
+            GUILayout.FlexibleSpace();
+            if (!string.IsNullOrEmpty(cachedPackageVersion))
+                EditorGUILayout.LabelField(cachedPackageVersion, EditorStyles.miniBoldLabel, GUILayout.Width(60));
+            DrawHeaderIconButton(headerIcon1, "Discord", Icon1Url);
+            GUILayout.Space(4f);
+            DrawHeaderIconButton(headerIcon2, "Github", Icon2Url);
+            EditorGUILayout.EndHorizontal();
+        }
+
+        private void DrawHeaderIconButton(Texture2D icon, string tooltip, string url)
+        {
+            var content = icon != null
+                ? new GUIContent(icon, tooltip)
+                : new GUIContent("?", tooltip);
+
+            if (GUILayout.Button(content, headerIconButtonStyle, GUILayout.Width(HeaderIconSize), GUILayout.Height(HeaderIconSize)))
+            {
+                if (!string.IsNullOrWhiteSpace(url))
+                    Application.OpenURL(url);
+            }
+        }
+
+        private void EnsureHeaderIcons()
+        {
+            if (headerIconButtonStyle == null)
+            {
+                headerIconButtonStyle = new GUIStyle(GUI.skin.button)
+                {
+                    padding = new RectOffset(2, 2, 2, 2),
+                    margin = new RectOffset(0, 0, 0, 0),
+                    fixedWidth = HeaderIconSize,
+                    fixedHeight = HeaderIconSize
+                };
+            }
+
+            if (headerIcon1 == null)
+                headerIcon1 = LoadIconFromPackage(Icon1FileName);
+            if (headerIcon2 == null)
+                headerIcon2 = LoadIconFromPackage(Icon2FileName);
+        }
+
+        private void EnsurePackageVersion()
+        {
+            if (!string.IsNullOrEmpty(cachedPackageVersion)) return;
+            string version = LoadPackageVersion();
+            cachedPackageVersion = string.IsNullOrEmpty(version) ? "" : $"v{version}";
+        }
+
+        private string LoadPackageVersion()
+        {
+            string scriptPath = AssetDatabase.GetAssetPath(MonoScript.FromScriptableObject(this));
+            if (string.IsNullOrWhiteSpace(scriptPath)) return "";
+            string editorDir = Path.GetDirectoryName(scriptPath);
+            if (string.IsNullOrWhiteSpace(editorDir)) return "";
+            string rootDir = Path.GetDirectoryName(editorDir);
+            if (string.IsNullOrWhiteSpace(rootDir)) return "";
+
+            string packagePath = Path.Combine(rootDir, "package.json");
+            if (!File.Exists(packagePath)) return "";
+            string json = File.ReadAllText(packagePath);
+            var match = Regex.Match(json, "\"version\"\\s*:\\s*\"([^\"]+)\"");
+            return match.Success ? match.Groups[1].Value : "";
+        }
+
+        private Texture2D LoadIconFromPackage(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName)) return null;
+            string scriptPath = AssetDatabase.GetAssetPath(MonoScript.FromScriptableObject(this));
+            if (string.IsNullOrWhiteSpace(scriptPath)) return null;
+            string editorDir = Path.GetDirectoryName(scriptPath);
+            if (string.IsNullOrWhiteSpace(editorDir)) return null;
+            string rootDir = Path.GetDirectoryName(editorDir);
+            if (string.IsNullOrWhiteSpace(rootDir)) return null;
+
+            string iconPath = Path.Combine(rootDir, IconFolderName, fileName).Replace("\\", "/");
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(iconPath);
+        }
+
         private void DrawStatesList(AnimatorStateMachine rootSM)
         {
             EditorGUILayout.BeginHorizontal();
@@ -298,12 +441,66 @@ namespace JaxTools.StateSync
 
             EnsureStateStyles();
             var defaultState = rootSM.defaultState;
+            var assignedNumbers = new Dictionary<int, int>();
             var usedAssignments = new Dictionary<int, int>();
-            var assignmentToName = new Dictionary<int, string>();
+            var conflictByStateId = new HashSet<int>();
             conflictStateNames.Clear();
             localStartStateId = FindStateIdByName(visibleStates, localTreeName);
             remoteStartStateId = FindStateIdByName(visibleStates, remoteTreeName);
             SortStates(visibleStates, defaultState);
+
+            foreach (var entry in visibleStates)
+            {
+                if (entry.State == null) continue;
+                int stateId = entry.State.GetInstanceID();
+                bool isDefault = (defaultState != null && entry.State == defaultState);
+                if (IsNonNumberedState(isDefault, stateId)) continue;
+
+                int autoNumber = ParseTrailingNumber(entry.State.name);
+                assignedNumbers[stateId] = GetAssignedNumber(stateId, autoNumber);
+            }
+
+            foreach (var entry in visibleStates)
+            {
+                if (entry.State == null) continue;
+                int stateId = entry.State.GetInstanceID();
+                bool isDefault = (defaultState != null && entry.State == defaultState);
+                if (IsNonNumberedState(isDefault, stateId)) continue;
+
+                if (!assignedNumbers.TryGetValue(stateId, out int assignedNumber) || assignedNumber < 0)
+                    continue;
+
+                if (usedAssignments.TryGetValue(assignedNumber, out int existingId))
+                {
+                    if (lastEditedStateId == stateId)
+                    {
+                        conflictByStateId.Add(stateId);
+                    }
+                    else if (lastEditedStateId == existingId)
+                    {
+                        conflictByStateId.Add(existingId);
+                        usedAssignments[assignedNumber] = stateId;
+                    }
+                    else
+                    {
+                        conflictByStateId.Add(stateId);
+                    }
+                }
+                else
+                {
+                    usedAssignments[assignedNumber] = stateId;
+                }
+            }
+
+            foreach (var entry in visibleStates)
+            {
+                if (entry.State == null) continue;
+                int stateId = entry.State.GetInstanceID();
+                if (!conflictByStateId.Contains(stateId)) continue;
+                string conflictName = entry.State.name;
+                if (!conflictStateNames.Contains(conflictName))
+                    conflictStateNames.Add(conflictName);
+            }
 
             int visibleCount = Mathf.Min(MaxVisibleStateEntries, visibleStates.Count);
             int heightCount = Mathf.Max(1, MaxVisibleStateEntries + 1);
@@ -327,32 +524,9 @@ namespace JaxTools.StateSync
                 GUILayout.Space(i == 0 ? 0 : EntrySpacing);
 
                 int stateId = entry.State != null ? entry.State.GetInstanceID() : 0;
-                int assignedNumber = -1;
-                bool isConflict = false;
+                int assignedNumber = assignedNumbers.TryGetValue(stateId, out int number) ? number : -1;
+                bool isConflict = conflictByStateId.Contains(stateId);
                 bool isNonNumbered = IsNonNumberedState(isDefault, stateId);
-                if (!isNonNumbered)
-                {
-                    int autoNumber = ParseTrailingNumber(entry.State != null ? entry.State.name : entry.Path);
-                    assignedNumber = GetAssignedNumber(stateId, autoNumber);
-                    isConflict = assignedNumber >= 0 && usedAssignments.ContainsKey(assignedNumber);
-                    if (!isConflict && assignedNumber >= 0)
-                    {
-                        usedAssignments[assignedNumber] = stateId;
-                        assignmentToName[assignedNumber] = entry.State != null ? entry.State.name : entry.Path;
-                    }
-                    else if (isConflict && assignedNumber >= 0)
-                    {
-                        if (assignmentToName.TryGetValue(assignedNumber, out string existing))
-                        {
-                            if (!conflictStateNames.Contains(existing))
-                                conflictStateNames.Add(existing);
-                        }
-
-                        string currentName = entry.State != null ? entry.State.name : entry.Path;
-                        if (!conflictStateNames.Contains(currentName))
-                            conflictStateNames.Add(currentName);
-                    }
-                }
 
                 var prevBg = GUI.backgroundColor;
                 if (isConflict)
@@ -404,6 +578,7 @@ namespace JaxTools.StateSync
                         string nextText = EditorGUILayout.TextField(currentNumberText, GUILayout.Width(AssignInputWidth));
                         if (nextText != currentNumberText)
                         {
+                            lastEditedStateId = stateId;
                             if (string.IsNullOrWhiteSpace(nextText))
                             {
                                 manualStateAssignments.Remove(stateId);
@@ -514,7 +689,7 @@ namespace JaxTools.StateSync
             {
                 stateNameButtonStyle = new GUIStyle(GUI.skin.button)
                 {
-                    alignment = TextAnchor.MiddleLeft,
+                    alignment = TextAnchor.MiddleCenter,
                     padding = new RectOffset(10, 10, 4, 4),
                     fontStyle = FontStyle.Bold,
                     fontSize = 15,
@@ -557,6 +732,15 @@ namespace JaxTools.StateSync
                     alignment = TextAnchor.MiddleLeft
                 };
             }
+        }
+
+        private void EnsureSettingsToggleStyle()
+        {
+            if (settingsToggleStyle != null) return;
+            settingsToggleStyle = new GUIStyle(EditorStyles.label)
+            {
+                richText = true
+            };
         }
 
         private void DrawRemoteParameterDropdown()
@@ -779,6 +963,54 @@ namespace JaxTools.StateSync
                 removed += ClearStatesWithPrefixRecursive(childStateMachines[i].stateMachine, prefix);
 
             return removed;
+        }
+
+        private bool TryGetConflictSummary(
+            AnimatorStateMachine rootSM,
+            List<StateEntry> states,
+            out string summary
+        )
+        {
+            summary = "";
+            if (rootSM == null || states == null || states.Count == 0) return false;
+
+            var defaultState = rootSM.defaultState;
+            localStartStateId = FindStateIdByName(states, localTreeName);
+            remoteStartStateId = FindStateIdByName(states, remoteTreeName);
+
+            var conflicts = new Dictionary<int, List<string>>();
+            foreach (var entry in states)
+            {
+                if (entry.State == null) continue;
+                int stateId = entry.State.GetInstanceID();
+                bool isDefault = defaultState != null && entry.State == defaultState;
+                if (IsNonNumberedState(isDefault, stateId)) continue;
+
+                int autoNumber = ParseTrailingNumber(entry.State.name);
+                int assignedNumber = GetAssignedNumber(stateId, autoNumber);
+                if (assignedNumber < 0) continue;
+
+                if (!conflicts.TryGetValue(assignedNumber, out var list))
+                {
+                    list = new List<string>();
+                    conflicts[assignedNumber] = list;
+                }
+
+                string name = entry.State.name;
+                if (!list.Contains(name))
+                    list.Add(name);
+            }
+
+            var lines = new List<string>();
+            foreach (var pair in conflicts)
+            {
+                if (pair.Value.Count <= 1) continue;
+                lines.Add($"{pair.Key}: {string.Join(", ", pair.Value)}");
+            }
+
+            if (lines.Count == 0) return false;
+            summary = string.Join("\n", lines);
+            return true;
         }
 
     }

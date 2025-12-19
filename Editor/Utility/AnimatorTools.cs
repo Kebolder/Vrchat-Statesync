@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
@@ -27,6 +28,41 @@ namespace JaxTools.StateSync.Utility
                 CleanState(cloned);
 
             return cloned;
+        }
+
+        public static AnimatorController CloneAnimator(
+            AnimatorController source,
+            string prefix = "StateSynced_"
+        )
+        {
+            if (source == null) return null;
+            if (string.IsNullOrEmpty(prefix)) prefix = "StateSynced_";
+
+            string sourcePath = AssetDatabase.GetAssetPath(source);
+            if (string.IsNullOrEmpty(sourcePath))
+                return UnityEngine.Object.Instantiate(source);
+
+            string directory = Path.GetDirectoryName(sourcePath);
+            if (string.IsNullOrEmpty(directory))
+                return UnityEngine.Object.Instantiate(source);
+
+            string newName = $"{prefix}{source.name}";
+            string newPath = Path.Combine(directory, $"{newName}.controller");
+            newPath = AssetDatabase.GenerateUniqueAssetPath(newPath);
+
+            if (!AssetDatabase.CopyAsset(sourcePath, newPath))
+                return UnityEngine.Object.Instantiate(source);
+
+            AssetDatabase.ImportAsset(newPath);
+            var clone = AssetDatabase.LoadAssetAtPath<AnimatorController>(newPath);
+            if (clone != null && clone.name != newName)
+            {
+                clone.name = newName;
+                EditorUtility.SetDirty(clone);
+                AssetDatabase.SaveAssets();
+            }
+
+            return clone;
         }
 
         public static void CleanState(AnimatorState state)
