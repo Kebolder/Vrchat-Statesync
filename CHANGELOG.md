@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed binary mode account for ALL states even if theyre not used
 
+## [1.1.0] - 12-18-2025
+### Changed
+- Recoded the entire tool, this is a completely new version that supports new features below:
 ### Added
-
-- This CHANGELOG file to hopefully serve as an evolving example of a standardized open source project CHANGELOG.
+- Copy transition time from local (Cloned states will now copy their respective transition time from their local states)
