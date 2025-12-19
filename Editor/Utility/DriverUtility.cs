@@ -1,5 +1,3 @@
-// Pure editor utility for adding/configuring a VRCAvatarParameterDriver entry on a specific Animator state.
-
 using System;
 using System.Linq;
 using UnityEditor;

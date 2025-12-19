@@ -1,5 +1,4 @@
-// Assets/Editor/StateSyncToolWindow.cs
-
+using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.Animations;

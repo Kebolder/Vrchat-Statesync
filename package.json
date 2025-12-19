@@ -1,18 +1,18 @@
 {
   "name": "com.kebolder.statesync",
   "displayName": "Kebolder - State Sync Tool",
-  "version": "1.2.0",
+  "version": "1.1.0",
   "description": "Simple tool to sync your local state to the remote by interconnecting everything using drivers.",
   "url": "https://github.com/Kebolder/Vrchat-Statesync",
   "vpmDependencies": {},
   "type": "tool",
   "keywords": [
-     "tool",
-     "sync",
-     "vrchat",
-     "remote",
-     "quailty of life",
-     "qol"
+    "tool",
+    "sync",
+    "vrchat",
+    "remote",
+    "quailty of life",
+    "qol"
   ],
   "author": {
     "name": "Kebolder"

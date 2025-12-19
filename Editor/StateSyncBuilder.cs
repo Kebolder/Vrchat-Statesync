@@ -1,10 +1,7 @@
-// Assets/Editor/StateSyncBuilder.cs
-
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
-using AnimatorTools = JaxTools.StateSync.Utility.AnimatorTools;
 
 namespace JaxTools.StateSync
 {

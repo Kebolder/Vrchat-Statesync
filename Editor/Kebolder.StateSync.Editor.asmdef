@@ -1,20 +1,22 @@
 {
-  "name": "Kebolder.StateSync.Editor",
-  "references": [
-    "VRC.SDK3A",
-    "VRC.SDK3A.Editor",
-    "VRC.SDKBase",
-    "VRC.SDKBase.Editor",
-    "Kebolder.StateSync"
-  ],
-  "includePlatforms": [
-    "Editor"
-  ],
-  "excludePlatforms": [],
-  "allowUnsafeCode": false,
-  "autoReferenced": true,
-  "overrideReferences": false,
-  "precompiledReferences": [],
-  "defineConstraints": [],
-  "optionalUnityReferences": []
+    "name": "com.kebolder.statesync",
+    "rootNamespace": "",
+    "references": [
+        "VRC.SDK3A",
+        "VRC.SDK3A.Editor",
+        "VRC.SDKBase",
+        "VRC.SDKBase.Editor",
+        "Kebolder.StateSync"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
 }
