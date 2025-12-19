@@ -25,3 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Added
 - Clear state(s) by prefixs
+
+## 1.1.2 - 12-19-2025
+## Fixed
+- Font colors in the state info box being black.

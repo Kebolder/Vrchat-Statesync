@@ -533,6 +533,10 @@ namespace JaxTools.StateSync
                     margin = new RectOffset(0, 0, 0, 0),
                     padding = new RectOffset(4, 4, 2, 2)
                 };
+                stateLeftBoxStyle.normal.textColor = Color.white;
+                stateLeftBoxStyle.hover.textColor = Color.white;
+                stateLeftBoxStyle.active.textColor = Color.white;
+                stateLeftBoxStyle.focused.textColor = Color.white;
             }
 
             if (stateButtonFrameStyle == null)
