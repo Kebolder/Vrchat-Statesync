@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
+using JaxTools.StateSync.Utility;
 
 namespace JaxTools.StateSync
 {
@@ -65,6 +67,14 @@ namespace JaxTools.StateSync
         private string stateFilterPrefix = "";
         private int remoteParameterIndex = -1;
         private string remoteParameterName = "";
+        private enum ParameterMode
+        {
+            Int,
+            Bool
+        }
+        private ParameterMode parameterMode = ParameterMode.Int;
+        private readonly HashSet<string> selectedBoolParameters = new();
+        private Vector2 boolParamScroll;
         private bool removeDriversFromRemote;
         private bool addDriverForLocalSyncState;
         private bool packIntoStateMachine;
@@ -245,7 +255,16 @@ namespace JaxTools.StateSync
             cloneAnimatorBeforeSync = EditorGUILayout.ToggleLeft(toggleLabel, cloneAnimatorBeforeSync, settingsToggleStyle);
             if (cloneAnimatorBeforeSync)
                 cloneAnimatorPrefix = EditorGUILayout.TextField("Clone prefix", cloneAnimatorPrefix);
-            DrawRemoteParameterDropdown();
+
+            parameterMode = (ParameterMode)EditorGUILayout.EnumPopup("Parameter Type", parameterMode);
+            if (parameterMode == ParameterMode.Int)
+            {
+                DrawRemoteParameterDropdown();
+            }
+            else
+            {
+                DrawBooleanParameterSelection();
+            }
             parameterPrefix = EditorGUILayout.TextField("Remote state prefix", parameterPrefix);
 
             EditorGUILayout.Space(4);
@@ -298,19 +317,74 @@ namespace JaxTools.StateSync
                     return;
                 }
 
-                StateSyncBuilder.BuildRemoteSync(
-                    controller,
-                    selectedLayerIndex,
-                    parameterPrefix,
-                    assignedNumbers,
-                    localTreeName,
-                    remoteTreeName,
-                    remoteParameterName,
-                    removeDriversFromRemote,
-                    addDriverForLocalSyncState,
-                    packIntoStateMachine,
-                    matchTransitionTimes
-                );
+                if (parameterMode == ParameterMode.Int)
+                {
+                    StateSyncBuilder.BuildRemoteSync(
+                        controller,
+                        selectedLayerIndex,
+                        parameterPrefix,
+                        assignedNumbers,
+                        localTreeName,
+                        remoteTreeName,
+                        remoteParameterName,
+                        removeDriversFromRemote,
+                        addDriverForLocalSyncState,
+                        packIntoStateMachine,
+                        matchTransitionTimes
+                    );
+                }
+                else
+                {
+                    var boolParams = GetSelectedBooleanParametersOrdered();
+                    int required = GetRequiredBoolCountFromAssignments(out _, out _);
+
+                    if (required > 0 && boolParams.Count < required)
+                    {
+                        EditorUtility.DisplayDialog(
+                            "Not Enough Boolean Parameters",
+                            $"You need at least {required} boolean parameters selected to sync these assigned states.",
+                            "OK"
+                        );
+                        return;
+                    }
+
+                    if (required > 0 && boolParams.Count > required)
+                        boolParams = boolParams.Take(required).ToList();
+
+                    if (boolParams.Count == 0 && required > 0)
+                    {
+                        EditorUtility.DisplayDialog(
+                            "No Boolean Parameters Selected",
+                            "Select boolean parameters to continue.",
+                            "OK"
+                        );
+                        return;
+                    }
+
+                    if (!HasSufficientBitsForAssignments(assignedNumbers, boolParams.Count, out int maxAssignedValue))
+                    {
+                        EditorUtility.DisplayDialog(
+                            "Boolean Range Too Small",
+                            $"The highest assigned number is {maxAssignedValue}, which cannot fit in {boolParams.Count} boolean parameters.",
+                            "OK"
+                        );
+                        return;
+                    }
+
+                    StateSyncBuilder.BuildRemoteSyncBoolean(
+                        controller,
+                        selectedLayerIndex,
+                        parameterPrefix,
+                        assignedNumbers,
+                        localTreeName,
+                        remoteTreeName,
+                        boolParams,
+                        removeDriversFromRemote,
+                        addDriverForLocalSyncState,
+                        packIntoStateMachine,
+                        matchTransitionTimes
+                    );
+                }
             }
 
             EditorGUILayout.EndVertical();
@@ -782,6 +856,105 @@ namespace JaxTools.StateSync
                 remoteParameterName = options[remoteParameterIndex];
         }
 
+        private void DrawBooleanParameterSelection()
+        {
+            int stateCount = CountNumberedStates();
+            int required = GetRequiredBoolCountFromAssignments(out _, out _);
+
+            var boolParams = JaxTools.StateSync.Utility.AnimatorTools.GetParametersByType(
+                controller,
+                AnimatorControllerParameterType.Bool
+            );
+
+            var orderedSelected = GetSelectedBooleanParametersOrdered(boolParams);
+            int selectedCount = orderedSelected.Count;
+            int usedCount = required > 0 ? Mathf.Min(selectedCount, required) : (selectedCount > 0 ? 1 : 0);
+
+            string info =
+                $"Numbered states: {stateCount}\n" +
+                $"Minimum booleans required: {required}\n" +
+                $"Selected booleans: {selectedCount} (using {usedCount})\n" +
+                "Uses the lowest possible amount of booleans for the current assignments.";
+            EditorGUILayout.HelpBox(info, MessageType.Info);
+
+            bool warnByRequired = BinaryTools.ShouldSuggestInt(required);
+            bool warnBySelected = BinaryTools.ShouldSuggestInt(selectedCount);
+            if (warnByRequired || warnBySelected)
+            {
+                EditorGUILayout.HelpBox(
+                    "This uses 8 or more booleans. It is usually better and easier to use an int parameter.",
+                    MessageType.Warning
+                );
+            }
+
+            if (boolParams.Count == 0)
+            {
+                EditorGUILayout.HelpBox("No boolean parameters found on this controller.", MessageType.Warning);
+                selectedBoolParameters.Clear();
+                return;
+            }
+
+            EditorGUILayout.LabelField("Boolean Parameters", EditorStyles.boldLabel);
+            EditorGUILayout.BeginVertical(GUI.skin.box);
+            const float rowSpacing = 1f;
+            float rowHeight = EditorGUIUtility.singleLineHeight + 6f;
+            int visibleRows = Mathf.Min(5, boolParams.Count);
+            float scrollHeight = Mathf.Max(1, visibleRows) * rowHeight +
+                                 Mathf.Max(0, visibleRows - 1) * rowSpacing +
+                                 4f;
+            boolParamScroll = EditorGUILayout.BeginScrollView(boolParamScroll, GUILayout.Height(scrollHeight));
+            for (int i = 0; i < boolParams.Count; i++)
+            {
+                var p = boolParams[i];
+                if (p == null) continue;
+                bool selected = selectedBoolParameters.Contains(p.name);
+
+                var prevBg = GUI.backgroundColor;
+                GUI.backgroundColor = ColorFromHex(StateButtonFrameHex);
+                EditorGUILayout.BeginVertical(GUI.skin.box);
+                GUI.backgroundColor = prevBg;
+
+                bool next = EditorGUILayout.ToggleLeft(p.name, selected);
+                if (next)
+                    selectedBoolParameters.Add(p.name);
+                else
+                    selectedBoolParameters.Remove(p.name);
+
+                EditorGUILayout.EndVertical();
+                if (i < boolParams.Count - 1)
+                    GUILayout.Space(rowSpacing);
+            }
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+
+            var availableNames = new HashSet<string>();
+            foreach (var p in boolParams)
+                if (p != null && !string.IsNullOrEmpty(p.name))
+                    availableNames.Add(p.name);
+            selectedBoolParameters.RemoveWhere(name => !availableNames.Contains(name));
+        }
+
+        private List<string> GetSelectedBooleanParametersOrdered()
+        {
+            var boolParams = JaxTools.StateSync.Utility.AnimatorTools.GetParametersByType(
+                controller,
+                AnimatorControllerParameterType.Bool
+            );
+            return GetSelectedBooleanParametersOrdered(boolParams);
+        }
+
+        private List<string> GetSelectedBooleanParametersOrdered(List<AnimatorControllerParameter> boolParams)
+        {
+            var ordered = new List<string>();
+            foreach (var p in boolParams)
+            {
+                if (p == null || string.IsNullOrEmpty(p.name)) continue;
+                if (selectedBoolParameters.Contains(p.name))
+                    ordered.Add(p.name);
+            }
+            return ordered;
+        }
+
         private List<StateEntry> GetFilteredStates()
         {
             if (string.IsNullOrWhiteSpace(stateFilterPrefix))
@@ -825,6 +998,75 @@ namespace JaxTools.StateSync
             return map;
         }
 
+        private int CountNumberedStates()
+        {
+            if (controller == null || selectedLayerIndex < 0 || selectedLayerIndex >= controller.layers.Length)
+                return 0;
+
+            var root = controller.layers[selectedLayerIndex].stateMachine;
+            if (root == null) return 0;
+
+            int defaultId = root.defaultState != null ? root.defaultState.GetInstanceID() : 0;
+            localStartStateId = FindStateIdByName(cachedStates, localTreeName);
+            remoteStartStateId = FindStateIdByName(cachedStates, remoteTreeName);
+
+            int count = 0;
+            foreach (var entry in cachedStates)
+            {
+                if (entry.State == null) continue;
+                int stateId = entry.State.GetInstanceID();
+                bool isDefault = stateId == defaultId;
+                if (IsNonNumberedState(isDefault, stateId)) continue;
+
+                int autoNumber = ParseTrailingNumber(entry.State.name);
+                int assignedNumber = GetAssignedNumber(stateId, autoNumber);
+                if (assignedNumber >= 0)
+                    count++;
+            }
+
+            return count;
+        }
+
+        private int GetMaxAssignedNumber(out bool hasAssigned)
+        {
+            hasAssigned = false;
+
+            if (controller == null || selectedLayerIndex < 0 || selectedLayerIndex >= controller.layers.Length)
+                return 0;
+
+            var root = controller.layers[selectedLayerIndex].stateMachine;
+            if (root == null) return 0;
+
+            int defaultId = root.defaultState != null ? root.defaultState.GetInstanceID() : 0;
+            localStartStateId = FindStateIdByName(cachedStates, localTreeName);
+            remoteStartStateId = FindStateIdByName(cachedStates, remoteTreeName);
+
+            int max = 0;
+            foreach (var entry in cachedStates)
+            {
+                if (entry.State == null) continue;
+                int stateId = entry.State.GetInstanceID();
+                bool isDefault = stateId == defaultId;
+                if (IsNonNumberedState(isDefault, stateId)) continue;
+
+                int autoNumber = ParseTrailingNumber(entry.State.name);
+                int assignedNumber = GetAssignedNumber(stateId, autoNumber);
+                if (assignedNumber < 0) continue;
+
+                hasAssigned = true;
+                if (assignedNumber > max)
+                    max = assignedNumber;
+            }
+
+            return max;
+        }
+
+        private int GetRequiredBoolCountFromAssignments(out int maxAssigned, out bool hasAssigned)
+        {
+            maxAssigned = GetMaxAssignedNumber(out hasAssigned);
+            return hasAssigned ? BinaryTools.GetRequiredBooleanCount(maxAssigned + 1) : 0;
+        }
+
         private Dictionary<string, int> BuildAssignedNumberMapByPath()
         {
             var map = new Dictionary<string, int>();
@@ -850,6 +1092,26 @@ namespace JaxTools.StateSync
             }
 
             return map;
+        }
+
+        private static bool HasSufficientBitsForAssignments(
+            Dictionary<int, int> assignedNumbers,
+            int boolCount,
+            out int maxAssigned
+        )
+        {
+            maxAssigned = 0;
+            if (assignedNumbers == null || assignedNumbers.Count == 0) return true;
+
+            foreach (var pair in assignedNumbers)
+                if (pair.Value > maxAssigned)
+                    maxAssigned = pair.Value;
+
+            if (boolCount >= 31) return true;
+            if (boolCount <= 0) return maxAssigned <= 0;
+
+            int maxValue = (1 << boolCount) - 1;
+            return maxAssigned <= maxValue;
         }
 
         private static Dictionary<int, int> BuildAssignedNumberMapFromPaths(

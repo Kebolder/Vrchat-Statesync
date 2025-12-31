@@ -31,6 +31,7 @@
 ### 4. Settings
 
 - `Clone Animator before sync` will clone your Animator using a prefix `StateSync_` before doing it's logic so you always have a clean version.
+- `Parameter Type` Uses either Int or Boolean [(See below)](#boolean-mode)
 - `Remote Parameter` is the parameter you want to use for syncing. **Currently locked to Int only.**
 - `Remote state prefix` adds a prefix to the front of newly cloned states (for example, `Remote_State 1`).
 - `Remove Drivers from remote` removes parameter drivers that are cloned from the original states.
@@ -41,5 +42,18 @@
 ![Image](Images/7.png)
 
 ---
+### Boolean mode
 
-Once all done, simply hit **Create Remote sync** and that's it!
+
+Boolean mode uses multiple boolean parameters to represent a single number in binary.
+Each selected boolean is a bit. The first checkbox is the lowest bit (bit 0), the next is bit 1, and so on.
+When a state is assigned a number, that number is converted to binary and each bit is written to the matching boolean.
+
+Example with 3 booleans (Bool1, Bool2, Bool3):
+- State number 1 = binary 001 -> Bool1 = true, Bool2 = false, Bool3 = false
+- State number 5 = binary 101 -> Bool1 = true, Bool2 = false, Bool3 = true
+
+The tool calculates the minimum number of booleans needed based on your highest assigned number.
+If it needs 8 or more booleans (or you select 8+), it will warn you that using an int is usually easier.
+
+![Image](Images/Binary.png)

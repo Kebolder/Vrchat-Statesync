@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.Animations;
@@ -124,6 +125,120 @@ public static class DriverUtility
             chance,
             localOnly
         );
+
+        EditorUtility.SetDirty(controller);
+        AssetDatabase.SaveAssets();
+        return true;
+    }
+
+    /// <summary>
+    /// Adds (or reuses) a VRCAvatarParameterDriver on the target state and appends
+    /// multiple boolean entries in the given order. values are applied in the same order
+    /// as destinationParams (index 0 is the first checkbox in the UI).
+    /// </summary>
+    public static bool AddBooleanDriverEntries(
+        AnimatorController controller,
+        int layerIndex,
+        string statePath,
+        IReadOnlyList<string> destinationParams,
+        IReadOnlyList<bool> values,
+        bool localOnly = false
+    )
+    {
+        if (controller == null)
+        {
+            Debug.LogError("[DriverUtility] controller is null.");
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(statePath))
+        {
+            Debug.LogError("[DriverUtility] statePath is empty.");
+            return false;
+        }
+
+        if (destinationParams == null || destinationParams.Count == 0)
+        {
+            Debug.LogError("[DriverUtility] destinationParams is empty.");
+            return false;
+        }
+
+        if (values == null || values.Count == 0)
+        {
+            Debug.LogError("[DriverUtility] values is empty.");
+            return false;
+        }
+
+        if (destinationParams.Count != values.Count)
+        {
+            Debug.LogError("[DriverUtility] destinationParams and values length mismatch.");
+            return false;
+        }
+
+        if (layerIndex < 0 || layerIndex >= controller.layers.Length)
+        {
+            Debug.LogError($"[DriverUtility] layerIndex out of range: {layerIndex}");
+            return false;
+        }
+
+        var state = FindStateByPath(controller.layers[layerIndex].stateMachine, statePath);
+        if (state == null)
+        {
+            Debug.LogError($"[DriverUtility] State not found: '{statePath}' on layer '{controller.layers[layerIndex].name}'.");
+            return false;
+        }
+
+        for (int i = 0; i < destinationParams.Count; i++)
+            EnsureControllerParameter(controller, destinationParams[i], DestinationType.Boolean);
+
+        var driverTypeObj = FindTypeByName("VRC.SDK3.Avatars.Components.VRCAvatarParameterDriver");
+        if (driverTypeObj == null)
+        {
+            Debug.LogError("[DriverUtility] VRCAvatarParameterDriver type not found (VRChat SDK missing?).");
+            return false;
+        }
+
+        var driver = GetOrAddBehaviour(state, driverTypeObj);
+        if (driver == null)
+        {
+            Debug.LogError("[DriverUtility] Failed to get/add VRCAvatarParameterDriver on state.");
+            return false;
+        }
+
+        for (int i = 0; i < destinationParams.Count; i++)
+        {
+            string param = destinationParams[i];
+            float value = values[i] ? 1f : 0f;
+
+            if (HasMatchingDriverEntry(
+                driver,
+                TYPE_SET,
+                DestinationType.Boolean,
+                param,
+                value,
+                null,
+                0f,
+                0f,
+                0f,
+                localOnly
+            ))
+            {
+                continue;
+            }
+
+            AppendDriverEntry(
+                driver,
+                TYPE_SET,
+                DestinationType.Boolean,
+                param,
+                value,
+                null,
+                0f,
+                0f,
+                0f,
+                localOnly
+            );
+        }
 
         EditorUtility.SetDirty(controller);
         AssetDatabase.SaveAssets();

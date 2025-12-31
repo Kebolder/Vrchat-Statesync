@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using JaxTools.StateSync.Utility;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
@@ -135,6 +136,137 @@ namespace JaxTools.StateSync
             }
         }
 
+        public static void BuildRemoteSyncBoolean(
+            AnimatorController controller,
+            int layerIndex,
+            string remotePrefix,
+            Dictionary<int, int> assignedNumbers,
+            string localTreeName,
+            string remoteTreeName,
+            IReadOnlyList<string> booleanParameters,
+            bool removeDriversFromRemote,
+            bool addDriverForLocalSyncState,
+            bool packIntoStateMachine,
+            bool matchTransitionTimes
+        )
+        {
+            if (controller == null)
+            {
+                Debug.LogError(LogPrefix + "BuildRemoteSyncBoolean aborted: controller is null.");
+                return;
+            }
+            if (layerIndex < 0 || layerIndex >= controller.layers.Length)
+            {
+                Debug.LogError(LogPrefix + "BuildRemoteSyncBoolean aborted: layer index is out of range.");
+                return;
+            }
+
+            var root = controller.layers[layerIndex].stateMachine;
+            if (root == null)
+            {
+                Debug.LogError(LogPrefix + "BuildRemoteSyncBoolean aborted: selected layer has no state machine.");
+                return;
+            }
+
+            try
+            {
+                int localId = FindStateIdByName(root, localTreeName);
+                int remoteId = FindStateIdByName(root, remoteTreeName);
+                int defaultId = root.defaultState != null ? root.defaultState.GetInstanceID() : 0;
+
+                float minLocalX = float.PositiveInfinity;
+                Traverse(root, (parent, child) =>
+                {
+                    minLocalX = Mathf.Min(minLocalX, child.position.x);
+                });
+
+                var clonedByNumber = new Dictionary<int, AnimatorState>();
+                var cloneParents = new Dictionary<int, AnimatorStateMachine>();
+                var originalsByNumber = new Dictionary<int, AnimatorState>();
+                float maxCloneX = float.NegativeInfinity;
+                Traverse(root, (parent, child) =>
+                {
+                    var state = child.state;
+                    if (state == null) return;
+
+                    int stateId = state.GetInstanceID();
+                    if (!assignedNumbers.TryGetValue(stateId, out int number) || number < 0) return;
+                    if (stateId == defaultId || stateId == localId || stateId == remoteId) return;
+
+                    string baseName = string.IsNullOrEmpty(remotePrefix)
+                        ? state.name
+                        : $"{remotePrefix}{state.name}";
+                    string newName = MakeUniqueStateName(parent, baseName);
+
+                    var clone = JaxTools.StateSync.Utility.AnimatorTools.CloneState(
+                        state,
+                        parent,
+                        newName,
+                        removeDriversFromRemote
+                    );
+                    if (clone == null) return;
+
+                    Vector3 pos = child.position;
+                    pos.x = -pos.x;
+                    UpdateChildPosition(parent, clone, pos);
+                    maxCloneX = Mathf.Max(maxCloneX, pos.x);
+
+                    // Ensure cloned states start disconnected.
+                    clone.transitions = System.Array.Empty<AnimatorStateTransition>();
+
+                    clonedByNumber[number] = clone;
+                    originalsByNumber[number] = state;
+                    cloneParents[clone.GetInstanceID()] = parent;
+                });
+
+                if (assignedNumbers == null || assignedNumbers.Count == 0)
+                    Debug.LogWarning(LogPrefix + "No assigned numbers found; no states will be cloned.");
+                if (clonedByNumber.Count == 0)
+                    Debug.LogWarning(LogPrefix + "No clone states created. Check assigned numbers and exclusions.");
+
+                const float MinCloneGap = 50f;
+                if (clonedByNumber.Count > 0 && minLocalX < float.PositiveInfinity && maxCloneX > minLocalX - MinCloneGap)
+                {
+                    float shift = maxCloneX - (minLocalX - MinCloneGap);
+                    foreach (var clonePair in clonedByNumber)
+                    {
+                        var clone = clonePair.Value;
+                        if (clone == null) continue;
+                        var parent = cloneParents.TryGetValue(clone.GetInstanceID(), out var p) ? p : root;
+                        if (!TryGetStatePosition(parent, clone.GetInstanceID(), out var pos))
+                            continue;
+                        pos.x -= shift;
+                        UpdateChildPosition(parent, clone, pos);
+                    }
+                }
+
+                if (booleanParameters != null)
+                {
+                    foreach (var param in booleanParameters)
+                        EnsureBoolParameter(controller, param);
+                }
+
+                var targetMachine = root;
+                if (packIntoStateMachine)
+                    targetMachine = PackRemoteStates(root, remoteId, clonedByNumber, cloneParents, "Remote Sync");
+
+                ConnectClonedStatesBool(clonedByNumber, originalsByNumber, booleanParameters, matchTransitionTimes);
+                ConnectRemoteTreeBool(targetMachine, remoteId, clonedByNumber, booleanParameters);
+
+                if (addDriverForLocalSyncState)
+                    AddDriversToOriginalStatesBool(controller, layerIndex, root, assignedNumbers, booleanParameters);
+
+                EditorUtility.SetDirty(controller);
+                AssetDatabase.SaveAssets();
+                Debug.Log(LogPrefix + "BuildRemoteSyncBoolean completed.");
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogException(ex);
+                Debug.LogError(LogPrefix + "BuildRemoteSyncBoolean failed with an exception.");
+            }
+        }
+
         private static void Traverse(AnimatorStateMachine sm, System.Action<AnimatorStateMachine, ChildAnimatorState> onState)
         {
             foreach (var cs in sm.states)
@@ -232,6 +364,37 @@ namespace JaxTools.StateSync
             }
         }
 
+        private static void AddDriversToOriginalStatesBool(
+            AnimatorController controller,
+            int layerIndex,
+            AnimatorStateMachine root,
+            Dictionary<int, int> assignedNumbers,
+            IReadOnlyList<string> booleanParameters
+        )
+        {
+            if (controller == null || root == null) return;
+            if (assignedNumbers == null || assignedNumbers.Count == 0) return;
+            if (booleanParameters == null || booleanParameters.Count == 0) return;
+
+            var states = JaxTools.StateSync.Utility.AnimatorTools.GetStates(root);
+            foreach (var entry in states)
+            {
+                if (entry.State == null) continue;
+                int stateId = entry.State.GetInstanceID();
+                if (!assignedNumbers.TryGetValue(stateId, out int number)) continue;
+
+                var bits = BinaryTools.ToBooleanArray(number, booleanParameters.Count);
+                DriverUtility.AddBooleanDriverEntries(
+                    controller,
+                    layerIndex,
+                    entry.Path,
+                    booleanParameters,
+                    bits,
+                    localOnly: false
+                );
+            }
+        }
+
         private static void EnsureIntParameter(AnimatorController controller, string name)
         {
             if (controller == null || string.IsNullOrWhiteSpace(name)) return;
@@ -244,6 +407,21 @@ namespace JaxTools.StateSync
             {
                 name = name,
                 type = AnimatorControllerParameterType.Int
+            });
+        }
+
+        private static void EnsureBoolParameter(AnimatorController controller, string name)
+        {
+            if (controller == null || string.IsNullOrWhiteSpace(name)) return;
+            foreach (var p in controller.parameters)
+            {
+                if (p != null && p.name == name) return;
+            }
+
+            controller.AddParameter(new AnimatorControllerParameter
+            {
+                name = name,
+                type = AnimatorControllerParameterType.Bool
             });
         }
 
@@ -276,6 +454,49 @@ namespace JaxTools.StateSync
                     transition.hasFixedDuration = true;
                     transition.duration = 0f;
                     transition.AddCondition(AnimatorConditionMode.Equals, toPair.Key, parameterName);
+
+                    if (matchTransitionTimes && originalFrom != null &&
+                        originals != null && originals.TryGetValue(toPair.Key, out var originalTo) &&
+                        originalTo != null)
+                    {
+                        var originalTransition = FindTransition(originalFrom, originalTo);
+                        if (originalTransition != null)
+                            CopyTransitionTiming(originalTransition, transition);
+                    }
+                }
+            }
+        }
+
+        private static void ConnectClonedStatesBool(
+            Dictionary<int, AnimatorState> clones,
+            Dictionary<int, AnimatorState> originals,
+            IReadOnlyList<string> booleanParameters,
+            bool matchTransitionTimes
+        )
+        {
+            if (clones == null || clones.Count == 0) return;
+            if (booleanParameters == null) return;
+
+            foreach (var fromPair in clones)
+            {
+                var fromState = fromPair.Value;
+                if (fromState == null) continue;
+
+                AnimatorState originalFrom = null;
+                originals?.TryGetValue(fromPair.Key, out originalFrom);
+
+                foreach (var toPair in clones)
+                {
+                    if (fromPair.Key == toPair.Key) continue;
+                    var toState = toPair.Value;
+                    if (toState == null) continue;
+
+                    var transition = fromState.AddTransition(toState);
+                    transition.hasExitTime = false;
+                    transition.hasFixedDuration = true;
+                    transition.duration = 0f;
+
+                    AddBooleanConditions(transition, toPair.Key, booleanParameters);
 
                     if (matchTransitionTimes && originalFrom != null &&
                         originals != null && originals.TryGetValue(toPair.Key, out var originalTo) &&
@@ -332,6 +553,54 @@ namespace JaxTools.StateSync
                 transition.hasFixedDuration = true;
                 transition.duration = 0f;
                 transition.AddCondition(AnimatorConditionMode.Equals, pair.Key, parameterName);
+            }
+        }
+
+        private static void ConnectRemoteTreeBool(
+            AnimatorStateMachine root,
+            int remoteStateId,
+            Dictionary<int, AnimatorState> clones,
+            IReadOnlyList<string> booleanParameters
+        )
+        {
+            if (root == null || remoteStateId == 0) return;
+            if (clones == null || clones.Count == 0) return;
+            if (booleanParameters == null) return;
+
+            var remoteState = FindStateById(root, remoteStateId);
+            if (remoteState == null) return;
+
+            foreach (var pair in clones)
+            {
+                if (pair.Value == null) continue;
+                var transition = remoteState.AddTransition(pair.Value);
+                transition.hasExitTime = false;
+                transition.hasFixedDuration = true;
+                transition.duration = 0f;
+                AddBooleanConditions(transition, pair.Key, booleanParameters);
+            }
+        }
+
+        private static void AddBooleanConditions(
+            AnimatorStateTransition transition,
+            int value,
+            IReadOnlyList<string> booleanParameters
+        )
+        {
+            if (transition == null || booleanParameters == null) return;
+            if (booleanParameters.Count == 0) return;
+
+            var bits = BinaryTools.ToBooleanArray(value, booleanParameters.Count);
+            for (int i = 0; i < booleanParameters.Count; i++)
+            {
+                string param = booleanParameters[i];
+                if (string.IsNullOrWhiteSpace(param)) continue;
+
+                transition.AddCondition(
+                    bits[i] ? AnimatorConditionMode.If : AnimatorConditionMode.IfNot,
+                    0f,
+                    param
+                );
             }
         }
 
