@@ -41,3 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.4] - 12-19-2015
 ### Fixed
 - When cloning a layer with a bunch of states will lose its dictionary thus causing the states to be dropped.
+
+---
+## [1.1.5]
+#### Fixed
+- unitypackage tar
