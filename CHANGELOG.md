@@ -50,3 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0]
 ### Added
 - Added Binary sync mode.
+---
+## [1.2.1]
+### Changed
+- Changed StateMachine -> Sub-State Machine in the menu.

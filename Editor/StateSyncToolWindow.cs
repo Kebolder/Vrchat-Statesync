@@ -270,7 +270,7 @@ namespace JaxTools.StateSync
             EditorGUILayout.Space(4);
             removeDriversFromRemote = EditorGUILayout.ToggleLeft("Remove drivers from remote", removeDriversFromRemote);
             addDriverForLocalSyncState = EditorGUILayout.ToggleLeft("Add drivers for local sync state", addDriverForLocalSyncState);
-            packIntoStateMachine = EditorGUILayout.ToggleLeft("Pack into StateMachine", packIntoStateMachine);
+            packIntoStateMachine = EditorGUILayout.ToggleLeft("Pack into Sub-State Machine", packIntoStateMachine);
             matchTransitionTimes = EditorGUILayout.ToggleLeft("Match transition times", matchTransitionTimes);
 
             EditorGUILayout.Space(8);
