@@ -11,7 +11,7 @@ on:
 env:
   triggerUpdate: ${{ true }}
   repoOwner: "Kebolder"
-  repoName: "Kebolder-VPM-Listin"
+  repoName: "Kebolder-VPM-Listing"
   repoBranch: "main"
   workflowName: "build-listing.yml"
   accessToken: ${{ secrets.VPM_TOKEN }}
@@ -22,9 +22,9 @@ jobs:
     steps:
       - name: Trigger Repo Update
         if: ${{ env.triggerUpdate == 'true' }}
-        uses: actions/github-script@v6
-        with: 
-          github-token: ${{ env.accessToken }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.VPM_TOKEN }}
           script: |
             await github.rest.actions.createWorkflowDispatch({
               owner: '${{ env.repoOwner }}',

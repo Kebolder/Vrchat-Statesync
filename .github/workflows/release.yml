@@ -7,7 +7,6 @@ on:
     paths: package.json
 
 env:
-  icon_path: .github/thumbnail.png
   triggerRepoUpdate: ${{ true }}
 
 permissions:
@@ -96,4 +95,6 @@ jobs:
         if: ${{ env.triggerRepoUpdate == 'true' }}
         uses: peter-evans/repository-dispatch@v2
         with:
+          token: ${{ secrets.VPM_TOKEN }}
+          repository: Kebolder/Kebolder-VPM-Listing
           event-type: trigger-repo-update
