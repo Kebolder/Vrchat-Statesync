@@ -54,3 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.1]
 ### Changed
 - Changed StateMachine -> Sub-State Machine in the menu.
+---
+## [1.2.2] - 1/11/2026
+### Added
+- Under utilities added the ability to add a parameter list which will make sure it has your remote synced parameter inside it incase you forgor 

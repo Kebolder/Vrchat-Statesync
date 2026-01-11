@@ -7,6 +7,7 @@ using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
 using JaxTools.StateSync.Utility;
+using VRC.SDK3.Avatars.ScriptableObjects;
 
 namespace JaxTools.StateSync
 {
@@ -82,6 +83,7 @@ namespace JaxTools.StateSync
         private string clearStatePrefix = "Remote_";
         private bool cloneAnimatorBeforeSync = true;
         private string cloneAnimatorPrefix = "StateSynced_";
+        private VRCExpressionParameters expressionParametersAsset;
 
         private readonly Dictionary<int, int> manualStateAssignments = new();
         private readonly Dictionary<int, string> manualStateAssignmentText = new();
@@ -397,6 +399,13 @@ namespace JaxTools.StateSync
             GUI.backgroundColor = prevSectionBg;
 
             EditorGUILayout.LabelField("Utilities", EditorStyles.boldLabel);
+            expressionParametersAsset = (VRCExpressionParameters)EditorGUILayout.ObjectField(
+                "Expression Parameters",
+                expressionParametersAsset,
+                typeof(VRCExpressionParameters),
+                false
+            );
+            DrawExpressionParametersUtility();
             clearStatePrefix = EditorGUILayout.TextField("Clear state prefix", clearStatePrefix);
 
             EditorGUILayout.Space(4);
@@ -932,6 +941,141 @@ namespace JaxTools.StateSync
                 if (p != null && !string.IsNullOrEmpty(p.name))
                     availableNames.Add(p.name);
             selectedBoolParameters.RemoveWhere(name => !availableNames.Contains(name));
+        }
+
+        private struct ExpectedExpressionParameter
+        {
+            public string Name;
+            public VRCExpressionParameters.ValueType Type;
+        }
+
+        private void DrawExpressionParametersUtility()
+        {
+            if (expressionParametersAsset == null)
+                return;
+
+            var expected = GetExpectedExpressionParameters();
+            if (expected.Count == 0)
+            {
+                EditorGUILayout.HelpBox("Select a remote parameter or boolean parameters to check.", MessageType.Info);
+                return;
+            }
+
+            var parameters = expressionParametersAsset.parameters ?? Array.Empty<VRCExpressionParameters.Parameter>();
+            var parameterLookup = new Dictionary<string, VRCExpressionParameters.Parameter>(StringComparer.Ordinal);
+            foreach (var p in parameters)
+            {
+                if (string.IsNullOrEmpty(p.name)) continue;
+                if (!parameterLookup.ContainsKey(p.name))
+                    parameterLookup[p.name] = p;
+            }
+
+            var missing = new List<ExpectedExpressionParameter>();
+            var wrongType = new List<ExpectedExpressionParameter>();
+            foreach (var item in expected)
+            {
+                if (!parameterLookup.TryGetValue(item.Name, out var existing))
+                {
+                    missing.Add(item);
+                    continue;
+                }
+
+                if (existing.valueType != item.Type)
+                    wrongType.Add(item);
+            }
+
+            if (missing.Count == 0 && wrongType.Count == 0)
+            {
+                EditorGUILayout.HelpBox("All selected parameters exist on this asset.", MessageType.Info);
+                return;
+            }
+
+            if (missing.Count > 0)
+            {
+                EditorGUILayout.HelpBox(
+                    $"Missing parameters: {FormatExpectedParameters(missing)}",
+                    MessageType.Warning
+                );
+            }
+
+            if (wrongType.Count > 0)
+            {
+                EditorGUILayout.HelpBox(
+                    $"Type mismatch: {FormatExpectedParameters(wrongType)}",
+                    MessageType.Warning
+                );
+            }
+
+            if (missing.Count > 0 && GUILayout.Button("Add missing parameters", GUILayout.Height(24)))
+                AddMissingExpressionParameters(missing);
+        }
+
+        private List<ExpectedExpressionParameter> GetExpectedExpressionParameters()
+        {
+            var expected = new List<ExpectedExpressionParameter>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            if (parameterMode == ParameterMode.Int)
+            {
+                if (!string.IsNullOrWhiteSpace(remoteParameterName) && seen.Add(remoteParameterName))
+                {
+                    expected.Add(new ExpectedExpressionParameter
+                    {
+                        Name = remoteParameterName,
+                        Type = VRCExpressionParameters.ValueType.Int
+                    });
+                }
+            }
+            else
+            {
+                var boolParams = GetSelectedBooleanParametersOrdered();
+                foreach (var name in boolParams)
+                {
+                    if (string.IsNullOrWhiteSpace(name) || !seen.Add(name)) continue;
+                    expected.Add(new ExpectedExpressionParameter
+                    {
+                        Name = name,
+                        Type = VRCExpressionParameters.ValueType.Bool
+                    });
+                }
+            }
+
+            return expected;
+        }
+
+        private static string FormatExpectedParameters(List<ExpectedExpressionParameter> parameters)
+        {
+            if (parameters == null || parameters.Count == 0) return "";
+            var parts = new List<string>();
+            foreach (var p in parameters)
+                parts.Add($"{p.Name} ({p.Type})");
+            return string.Join(", ", parts);
+        }
+
+        private void AddMissingExpressionParameters(List<ExpectedExpressionParameter> missing)
+        {
+            if (expressionParametersAsset == null || missing == null || missing.Count == 0)
+                return;
+
+            Undo.RecordObject(expressionParametersAsset, "Add expression parameters");
+            var list = new List<VRCExpressionParameters.Parameter>(
+                expressionParametersAsset.parameters ?? Array.Empty<VRCExpressionParameters.Parameter>()
+            );
+
+            foreach (var entry in missing)
+            {
+                list.Add(new VRCExpressionParameters.Parameter
+                {
+                    name = entry.Name,
+                    valueType = entry.Type,
+                    saved = false,
+                    defaultValue = 0f,
+                    networkSynced = true
+                });
+            }
+
+            expressionParametersAsset.parameters = list.ToArray();
+            EditorUtility.SetDirty(expressionParametersAsset);
         }
 
         private List<string> GetSelectedBooleanParametersOrdered()
