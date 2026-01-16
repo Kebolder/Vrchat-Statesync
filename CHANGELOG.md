@@ -63,3 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - "Remove parameter from remote" would alos remove parameters from the local side before cloning woops!
 ---
+## [1.2.4] - 1/16/2026
+### Fixed
+- Fixed remove again not removing drivers on the remote 
+---

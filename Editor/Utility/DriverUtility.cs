@@ -41,7 +41,8 @@ public static class DriverUtility
         float valueMin = 0f,
         float valueMax = 0f,
         float chance = 0f,
-        bool localOnly = false
+        bool localOnly = false,
+        bool createNewBehaviour = false
     )
     {
         if (controller == null)
@@ -90,7 +91,7 @@ public static class DriverUtility
             return false;
         }
 
-        var driver = GetOrAddBehaviour(state, driverTypeObj);
+        var driver = GetOrAddBehaviour(state, driverTypeObj, createNewBehaviour);
         if (driver == null)
         {
             Debug.LogError("[DriverUtility] Failed to get/add VRCAvatarParameterDriver on state.");
@@ -142,7 +143,8 @@ public static class DriverUtility
         string statePath,
         IReadOnlyList<string> destinationParams,
         IReadOnlyList<bool> values,
-        bool localOnly = false
+        bool localOnly = false,
+        bool createNewBehaviour = false
     )
     {
         if (controller == null)
@@ -198,7 +200,7 @@ public static class DriverUtility
             return false;
         }
 
-        var driver = GetOrAddBehaviour(state, driverTypeObj);
+        var driver = GetOrAddBehaviour(state, driverTypeObj, createNewBehaviour);
         if (driver == null)
         {
             Debug.LogError("[DriverUtility] Failed to get/add VRCAvatarParameterDriver on state.");
@@ -289,10 +291,13 @@ public static class DriverUtility
         return found;
     }
 
-    private static UnityEngine.Object GetOrAddBehaviour(AnimatorState state, Type behaviourType)
+    private static UnityEngine.Object GetOrAddBehaviour(AnimatorState state, Type behaviourType, bool createNew)
     {
-        var existing = state.behaviours?.FirstOrDefault(b => b != null && b.GetType() == behaviourType);
-        if (existing != null) return existing;
+        if (!createNew)
+        {
+            var existing = state.behaviours?.FirstOrDefault(b => b != null && b.GetType() == behaviourType);
+            if (existing != null) return existing;
+        }
 
         var typeOverload = typeof(AnimatorState).GetMethod("AddStateMachineBehaviour", new[] { typeof(Type) });
         if (typeOverload != null)

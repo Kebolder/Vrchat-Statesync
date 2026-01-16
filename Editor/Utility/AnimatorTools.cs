@@ -93,19 +93,26 @@ namespace JaxTools.StateSync.Utility
             if (state == null || state.behaviours == null) return;
 
             var driverType = FindTypeByName("VRC.SDK3.Avatars.Components.VRCAvatarParameterDriver");
-            if (driverType == null) return;
 
             // Detach driver behaviours from the cloned state without destroying them.
             // Destroying shared behaviour instances can remove drivers from the original state too.
             var so = new SerializedObject(state);
-            var behavioursProp = so.FindProperty("m_Behaviours");
+            var behavioursProp =
+                so.FindProperty("m_StateMachineBehaviours") ??
+                so.FindProperty("m_Behaviours") ??
+                so.FindProperty("behaviours");
             if (behavioursProp == null || !behavioursProp.isArray) return;
 
             for (int i = behavioursProp.arraySize - 1; i >= 0; i--)
             {
                 var element = behavioursProp.GetArrayElementAtIndex(i);
                 var obj = element?.objectReferenceValue;
-                if (obj == null || obj.GetType() != driverType) continue;
+                if (obj == null) continue;
+
+                var type = obj.GetType();
+                if (type != driverType &&
+                    !string.Equals(type.Name, "VRCAvatarParameterDriver", StringComparison.Ordinal))
+                    continue;
 
                 behavioursProp.DeleteArrayElementAtIndex(i);
                 if (i < behavioursProp.arraySize &&

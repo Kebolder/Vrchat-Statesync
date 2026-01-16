@@ -359,7 +359,8 @@ namespace JaxTools.StateSync
                     DriverUtility.DestinationType.Int,
                     remoteParameterName,
                     number,
-                    localOnly: false
+                    localOnly: false,
+                    createNewBehaviour: true
                 );
             }
         }
@@ -390,7 +391,8 @@ namespace JaxTools.StateSync
                     entry.Path,
                     booleanParameters,
                     bits,
-                    localOnly: false
+                    localOnly: false,
+                    createNewBehaviour: true
                 );
             }
         }
@@ -753,5 +755,6 @@ namespace JaxTools.StateSync
             var transition = root.AddStateMachineTransition(packed);
             transition.AddCondition(AnimatorConditionMode.IfNot, 0f, isLocalParameterName);
         }
+
     }
 }
