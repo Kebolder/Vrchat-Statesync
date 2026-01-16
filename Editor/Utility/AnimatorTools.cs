@@ -95,13 +95,25 @@ namespace JaxTools.StateSync.Utility
             var driverType = FindTypeByName("VRC.SDK3.Avatars.Components.VRCAvatarParameterDriver");
             if (driverType == null) return;
 
-            foreach (var behaviour in state.behaviours)
-            {
-                if (behaviour == null) continue;
-                if (behaviour.GetType() != driverType) continue;
+            // Detach driver behaviours from the cloned state without destroying them.
+            // Destroying shared behaviour instances can remove drivers from the original state too.
+            var so = new SerializedObject(state);
+            var behavioursProp = so.FindProperty("m_Behaviours");
+            if (behavioursProp == null || !behavioursProp.isArray) return;
 
-                UnityEngine.Object.DestroyImmediate(behaviour, true);
+            for (int i = behavioursProp.arraySize - 1; i >= 0; i--)
+            {
+                var element = behavioursProp.GetArrayElementAtIndex(i);
+                var obj = element?.objectReferenceValue;
+                if (obj == null || obj.GetType() != driverType) continue;
+
+                behavioursProp.DeleteArrayElementAtIndex(i);
+                if (i < behavioursProp.arraySize &&
+                    behavioursProp.GetArrayElementAtIndex(i).objectReferenceValue == null)
+                    behavioursProp.DeleteArrayElementAtIndex(i);
             }
+
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         public static List<StateEntry> GetStates(AnimatorStateMachine root)

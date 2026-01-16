@@ -58,3 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.2] - 1/11/2026
 ### Added
 - Under utilities added the ability to add a parameter list which will make sure it has your remote synced parameter inside it incase you forgor 
+---
+## [1.2.3] - 1/16/2026
+### Fixed
+- "Remove parameter from remote" would alos remove parameters from the local side before cloning woops!
+---
